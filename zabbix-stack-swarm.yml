@@ -1,0 +1,189 @@
+version: "3.6"
+services:
+
+ zabbix-web-nginx-mysql:
+  image: zabbix/zabbix-web-nginx-mysql:ubuntu-6.2-latest
+  ports:
+  - "80:80"
+  - "443:443"
+  volumes:
+   #- /etc/localtime:/etc/localtime:ro
+   #- /etc/timezone:/etc/timezone:ro
+   - zabbix_nginx:/etc/ssl/nginx:ro
+  env_file:
+   - .env_db_mysql
+   - .env_web
+  secrets:
+   - MYSQL_USER
+   - MYSQL_PASSWORD
+  user: root
+  healthcheck:
+   test: ["CMD", "curl", "-f", "http://localhost"]
+   interval: 10s
+   timeout: 5s
+   retries: 3
+   start_period: 30s
+  networks:
+   zbx_net_swarm:
+   zabbix_network:
+  stop_grace_period: 10s
+  deploy:
+   update_config:
+    failure_action: rollback
+   replicas: 2
+   #placement:
+   # constraints:
+   #  - 'node.role == worker'
+  labels:
+   com.zabbix.description: "Zabbix frontend on Nginx web-server with MySQL database support"
+   com.zabbix.company: "Zabbix SIA"
+   com.zabbix.component: "zabbix-frontend"
+   com.zabbix.webserver: "nginx"
+   com.zabbix.dbtype: "mysql"
+   com.zabbix.os: "alpine"
+
+ zabbix-server:
+  image: zabbix/zabbix-server-mysql:ubuntu-6.2-latest
+  ports:
+  # - "10051:10051"
+   - target: 10051
+     published: 10051
+     protocol: tcp
+     mode: host
+  volumes:
+   #- /etc/localtime:/etc/localtime:ro
+   #- /etc/timezone:/etc/timezone:ro 
+   - zabbix_alertscripts:/usr/lib/zabbix/alertscripts:ro
+   - zabbix_externalscripts:/usr/lib/zabbix/externalscripts:ro
+   - zabbix_modules:/var/lib/zabbix/modules:ro
+   - zabbix_enc:/var/lib/zabbix/enc:ro
+   - zabbix_ssh_keys:/var/lib/zabbix/ssh_keys:ro
+   - zabbix_mibs:/var/lib/zabbix/mibs:ro
+   - snmptraps:/var/lib/zabbix/snmptraps:ro
+  env_file:
+   - .env_db_mysql
+   - .env_srv
+  secrets:
+   - MYSQL_USER
+   - MYSQL_PASSWORD
+   - MYSQL_ROOT_PASSWORD
+  user: root
+  networks:
+   zabbix_network:
+  stop_grace_period: 30s
+  deploy:
+   update_config:
+    failure_action: rollback
+   #replicas: 2
+#   placement:
+#    constraints:
+#     - 'node.role == worker'
+  labels:
+   com.zabbix.description: "Zabbix server with MySQL database support"
+   com.zabbix.company: "Zabbix SIA"
+   com.zabbix.component: "zabbix-server"
+   com.zabbix.dbtype: "mysql"
+   com.zabbix.os: "ubuntu"
+
+ zabbix-agent:
+  image: zabbix/zabbix-agent:ubuntu-6.2-latest
+  hostname: zabbix-agent 
+  ports:
+   #- "10050:10050"
+   - target: 10050
+     published: 10050
+     protocol: tcp
+     mode: host
+  volumes:
+  # - /etc/localtime:/etc/localtime:ro
+  # - /etc/timezone:/etc/timezone:ro
+   - zabbix_agentd:/etc/zabbix/zabbix_agentd.d:ro
+   - zabbix_modules:/var/lib/zabbix/modules:ro
+   - zabbix_enc:/var/lib/zabbix/enc:ro
+   - zabbix_ssh_keys:/var/lib/zabbix/ssh_keys:ro
+  env_file:
+   - .env_agent
+  user: root
+  #privileged: true
+  deploy:
+   mode: global
+  # placement:
+  #  constraints:
+  #    - 'node.role == worker'
+  #pid: "host"
+  networks:
+   zabbix_network:
+  stop_grace_period: 5s
+
+ mysql-server:
+  image: mysql:8.0
+  command: [mysqld, --character-set-server=utf8, --collation-server=utf8_bin, --default-authentication-plugin=mysql_native_password]
+  volumes:
+   - zabbix_db:/var/lib/mysql:rw
+  env_file:
+   - .env_db_mysql
+  secrets:
+   - MYSQL_USER
+   - MYSQL_PASSWORD
+   - MYSQL_ROOT_PASSWORD
+  user: root
+  stop_grace_period: 1m
+  networks:
+   zabbix_network:
+  deploy:
+   update_config:
+    failure_action: rollback
+   placement:
+    constraints:
+     - 'node.role == manager'
+
+ visualizer:
+  image: dockersamples/visualizer:stable
+  ports:
+   - "8001:8080"
+  stop_grace_period: 1m30s
+  volumes:
+   - "/var/run/docker.sock:/var/run/docker.sock"
+  deploy:
+   update_config:
+    failure_action: rollback
+   placement:
+    constraints:
+     - 'node.role == manager'
+
+networks:
+ zbx_net_swarm:
+  driver: overlay
+  attachable: true
+  #external: true
+
+ zabbix_network:
+  attachable: true
+  #external: true
+  internal: true
+  ipam:
+   driver: default
+   config:
+    - subnet: "10.10.210.0/24"
+
+secrets:
+  MYSQL_USER:
+    file: ./.MYSQL_USER
+  MYSQL_PASSWORD:
+    file: ./.MYSQL_PASSWORD
+  MYSQL_ROOT_PASSWORD:
+    file: ./.MYSQL_ROOT_PASSWORD  
+
+volumes:
+ zabbix_db:
+ snmptraps:
+ zabbix_enc:
+ zabbix_ssh_keys:
+ zabbix_modules: 
+ zabbix_agentd:
+ zabbix:
+ zabbix_nginx:
+ zabbix_mibs:
+ zabbix_externalscripts:
+ zabbix_alertscripts:
+  
